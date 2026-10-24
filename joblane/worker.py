@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import queue
 import re
@@ -14,6 +15,7 @@ from .store import now
 from .history import History
 from . import telegram
 from .form_plan import descriptors
+from .job_health import deadline_passed,source_stale
 
 
 class Worker:
@@ -98,11 +100,22 @@ class Worker:
                 'bot_username':tg['bot_username']}
 
     def notify(self,job_id,test=False):
+        signature=None
+        if job_id and not test:
+            job=self.store.job(job_id)
+            with self.store.connect() as db:
+                busy=db.execute("SELECT 1 FROM ai_runs WHERE job_id=? AND status IN ('queued','running')",(job_id,)).fetchone()
+                row=db.execute("SELECT result FROM ai_runs WHERE job_id=? AND status='completed' AND kind IN ('analyze','form') ORDER BY id DESC LIMIT 1",(job_id,)).fetchone()
+            if busy or job_id in self.store.get('pending_answers',[]):return {'state':'suppressed','detail':'AI işlemi veya yeni kullanıcı yanıtı bekleniyor.'}
+            questions=json.loads(row['result']).get('questions',[]) if row and row['result'] else []
+            signature=hashlib.sha256(json.dumps({'status':job['status'],'reason':questions[:1] or job['reason']},ensure_ascii=False).encode()).hexdigest()
+            if self.store.get(f'notification_signature:{job_id}')==signature:return {'state':'suppressed','detail':'Aynı bekleyen adım daha önce bildirildi.'}
         if telegram.status(self.store)['configured']:
             state='sent'
             try:detail=telegram.send(self.store,test=test,job_id=job_id)
             except Exception:
                 state,detail='failed','Telegram bildirimi doğrulanamadı. Bot bağlantısını, engelleme durumunu ve interneti kontrol et. Otomatik tekrar veya başka kanala gönderim yapılmadı.'
+            if signature and state=='sent':self.store.set(f'notification_signature:{job_id}',signature)
             with self.store.connect() as db:
                 db.execute('INSERT INTO notifications(job_id,state,detail,created) VALUES (?,?,?,?)',(job_id,state,detail,now()))
             return {'state':state,'detail':detail}
@@ -124,6 +137,7 @@ class Worker:
                 if json.load(response).get('status')!=1: raise ValueError()
         except Exception:
             state,detail='failed','Push validation or delivery failed. Check the exact private device and credentials; the issue remains in the dashboard.'
+        if signature and state=='sent':self.store.set(f'notification_signature:{job_id}',signature)
         with self.store.connect() as db:
             db.execute('INSERT INTO notifications(job_id,state,detail,created) VALUES (?,?,?,?)',(job_id,state,detail,now()))
         return {'state':state,'detail':detail}
@@ -216,6 +230,11 @@ class Worker:
             return
         if not job['demo'] and board_requires_handoff(job['domain']):
             raise Handoff('This job board uses manual application in this build. Use its employer application link when available, or apply yourself and record the result.')
+        health=self.store.get(f'source_check:{job_id}',{})
+        if health.get('posting_status')=='closed' or deadline_passed(health.get('deadline')):
+            self.store.update(job_id,status='skipped',reason='İlan kapandı veya son başvuru tarihi geçti; başvuru durduruldu.')
+            return
+        if source_stale(health):raise Handoff('source_check_required: İlanın güncelliği ve son başvuru tarihi otomatik kontrol edilmeli.')
         if not job['snapshot']: raise Handoff('Prepare a CV before filling the application.')
         profile=json.loads(job['snapshot'])
         current_profile=self.store.get('profile')

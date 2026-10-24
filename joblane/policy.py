@@ -100,6 +100,7 @@ def matches_preferences(job, settings):
         if terms and not any(t in text for t in terms):
             return False, 'Does not match your '+key+' preference. Add missing job details or adjust the filter.'
     kind = settings.get('employment','Any')
-    if kind != 'Any' and kind.lower() not in text:
+    patterns={'Full-time':r'\bfull[ -]?time\b|tam zamanlı','Part-time':r'\bpart[ -]?time\b|yarı zamanlı','Internship':r'\binternship\b|\bstaj\b','Contract':r'\bcontract\b|sözleşmeli'}
+    if kind != 'Any' and not re.search(patterns[kind],text):
         return False, 'Employment type is not confirmed in the job description.'
     return True, ''

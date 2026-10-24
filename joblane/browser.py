@@ -276,18 +276,19 @@ class FormBrowser:
             _,fields=self.inspect(page)
             if fields:return
             links=page.get_by_role('link',name=re.compile(r'^(apply|apply now|apply for this job|apply for this position|başvur|hemen başvur|başvuru yap)$',re.I))
-            visible=[links.nth(i) for i in range(links.count()) if links.nth(i).is_visible()]
+            visible=[links.nth(i) for i in range(links.count()) if links.nth(i).is_visible() and not links.nth(i).evaluate("el => !!el.closest('header,nav,footer,[role=banner],[role=navigation]')")]
             if len(visible)!=1:return
             target=urljoin(page.url,visible[0].get_attribute('href') or '')
             before=urlsplit(page.url);dest=urlsplit(target)
             if target==page.url or dest.scheme!='https' or dest.hostname!=before.hostname:return
+            if dest.path.rstrip('/') in ('/apply','/application','/applications','/signup','/register'):return
             self.guard()
             visible[0].click(timeout=15000)
             page.wait_for_load_state('domcontentloaded')
 
     def inspect(self,page):
         text = page.locator('body').inner_text(timeout=10000).lower()
-        if any(s in text for s in CHALLENGES) or page.locator('iframe[src*="challenges.cloudflare"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"]').count():
+        if any(s in text for s in CHALLENGES) or page.locator('iframe[src*="challenges.cloudflare"]:visible, iframe[src*="recaptcha"][src*="bframe"]:visible, iframe[src*="hcaptcha"][title*="challenge"]:visible').count():
             raise Handoff('Browser verification is required. Use remote desktop to complete it in this tab, then resume.')
         if page.locator('input[type="password"]:visible').count():
             raise Handoff('Sign in using remote desktop in this browser, then resume.')

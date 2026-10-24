@@ -21,6 +21,8 @@ def test_filters_validate_and_reach_prompt(env):
 
 def test_answer_is_scoped_and_resumes_one_task(env):
     a,s,c,h,j=enabled(env)
+    from datetime import datetime,timezone
+    s.set(f'source_check:{j}',{'posting_status':'open','checked_at':datetime.now(timezone.utc).isoformat()})
     task=a.enqueue(j);r=result(s.get('profile'));r['questions']=['ABD çalışma iznin var mı?']
     a.update(task,status='completed',result=json.dumps(r))
     response=c.post(f'/api/jobs/{j}/answers',json={'text':'Hayır, sponsor gerekiyor.','question_run':task},headers=h)
@@ -29,7 +31,8 @@ def test_answer_is_scoped_and_resumes_one_task(env):
     assert 'ABD çalışma' in inputs['answers'][-1]['text']
     assert 'sponsor gerekiyor' in inputs['shared_answers'][-1]['text']
     assert 'sponsor gerekiyor' not in s.get('profile').get('verified_notes','')
-    assert c.post(f'/api/jobs/{j}/answers',json={'text':'tekrar'},headers=h).status_code==400
+    assert c.post(f'/api/jobs/{j}/answers',json={'text':'Ek açıklama'},headers=h).json['saved']
+    assert j in s.get('pending_answers')
 
 
 def test_stale_answer_and_submitted_application_are_rejected(env):
@@ -124,3 +127,118 @@ def test_auto_fill_preference_is_acknowledged_and_persists(env):
         assert c.get('/api/state').json['ai']['config']['auto_fill'] is desired
         assert s.get('ai_config')['auto_fill'] is desired
     assert not a.runs() and s.job(j)['status']=='draft'
+
+
+def test_source_verification_has_no_candidate_facts_or_prior_session(env):
+    from joblane.codex_agent import command_for
+    a,s,c,h,j=enabled(env)
+    s.set(f'answers:{j}',[{'text':'private answer'}])
+    task=a.enqueue(j,kind='verify');inputs=json.loads(a.get_run(task)['inputs'])
+    assert set(inputs)=={'job'} and set(inputs['job'])=={'url','title','company'}
+    assert 'private answer' not in a.prompt(a.get_run(task))
+    assert 'web_search="live"' in command_for('/fake/codex',s.directory,'verify')
+
+
+def test_verified_employment_updates_evidence_and_reanalyzes(env):
+    a,s,c,h,j=enabled(env);task=a.enqueue(j,kind='verify');a.update(task,status='completed')
+    a.advance_verification(task,{'employment':'Full-time','source_url':s.job(j)['url'],'evidence':'Employment type: Full time','limitation':''})
+    assert s.get(f'source_check:{j}')['employment']=='Full-time'
+    assert 'verified on source' in s.job(j)['description']
+    assert a.runs()[0]['kind']=='analyze' and a.runs()[0]['status']=='queued'
+    assert not s.job(j)['authorized']
+
+
+def test_unavailable_employment_source_does_not_guess_or_retry(env,monkeypatch):
+    a,s,c,h,j=enabled(env);monkeypatch.setattr(a.browser_worker,'notify',lambda *args:None)
+    task=a.enqueue(j,kind='verify');a.update(task,status='completed')
+    a.advance_verification(task,{'employment':'Unknown','source_url':s.job(j)['url'],'evidence':'','limitation':'Kaynak erişilemiyor.'})
+    assert s.job(j)['status']=='needs_attention' and len(a.runs())==1
+    assert 'Kaynak erişilemiyor' in s.job(j)['reason']
+
+
+def test_employment_filter_recognizes_turkish_and_spacing():
+    from joblane.policy import matches_preferences
+    for label in ('Full time','Full-time','Tam zamanlı'):
+        assert matches_preferences({'title':'Engineer','description':label},{'employment':'Full-time'})[0]
+    assert not matches_preferences({'title':'Engineer','description':'Internship'},{'employment':'Full-time'})[0]
+
+
+def test_waiting_question_does_not_block_other_scheduled_application(env):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from test_joblane import add
+    a,s,c,h,j=enabled(env)
+    other=add(c,h,url='https://example.com/careers/another').json['id']
+    s.update(j,status='needs_attention',reason='Aday yanıtı bekleniyor.')
+    s.update(other,status='queued')
+    dt=datetime.now(ZoneInfo('Europe/Istanbul'))
+    s.set('settings',{**s.get('settings'),'enabled':True,'start':'00:00','end':'23:59','days':list(range(7))})
+    # Test the queue independently of the actual minute of execution.
+    from unittest.mock import patch
+    with patch('joblane.worker.within_window',return_value=True):assert a.browser_worker.scheduled_job()==other
+    assert not a.browser_worker.paused.is_set()
+    task=a.enqueue(kind='discover')
+    assert a.get_run(task)['status']=='queued' and s.job(j)['status']=='needs_attention'
+
+
+def test_deadline_expiry_is_conservative_and_source_dates_require_evidence():
+    from datetime import datetime,timezone
+    from joblane.job_health import deadline_passed,validate_source_dates
+    assert deadline_passed('2026-10-22',datetime(2026,10,25,tzinfo=timezone.utc))
+    assert not deadline_passed('2026-10-25',datetime(2026,10,25,23,tzinfo=timezone.utc))
+    assert not deadline_passed('')
+    with pytest.raises(ValueError):validate_source_dates({'posting_status':'open','deadline':'2026-10-25','opens_on':'','status_evidence':''})
+
+
+def test_reply_after_deadline_cannot_restart_application(env):
+    a,s,c,h,j=enabled(env)
+    s.set(f'source_check:{j}',{'deadline':'2000-01-01','posting_status':'open'})
+    response=c.post(f'/api/jobs/{j}/answers',json={'text':'Evet, uygunum.'},headers=h)
+    assert response.status_code==400 and s.job(j)['status']=='skipped'
+    assert not a.runs()
+
+
+def test_waiting_job_metadata_refresh_is_independent_of_candidate_answers(env,monkeypatch):
+    a,s,c,h,j=enabled(env)
+    s.update(j,status='needs_attention')
+    s.set('settings',{**s.get('settings'),'enabled':True})
+    monkeypatch.setattr('joblane.codex_agent.within_window',lambda *args:True)
+    a.schedule_source_refresh()
+    assert a.runs()[0]['kind']=='verify' and s.job(j)['status']=='needs_attention'
+
+
+def test_answer_during_running_ai_is_saved_and_old_result_is_not_applied(env):
+    a,s,c,h,j=enabled(env);task=a.enqueue(j);a.update(task,status='running')
+    before=a.get_run(task)
+    reply=a.answer(j,'Bu ülke için sponsorluğa ihtiyacım var.')
+    assert reply['saved'] and reply['queued'] and j in s.get('pending_answers')
+    assert a.superseded(before)
+    assert a.get_run(task)['status']=='superseded'
+    assert not s.get('attempt:'+str(j))
+    fresh=a.enqueue(j)
+    assert not a.superseded(a.get_run(fresh)) and j not in s.get('pending_answers')
+
+
+def test_notifications_suppress_repeated_question_and_pending_ai(env,monkeypatch):
+    a,s,c,h,j=enabled(env);w=a.browser_worker
+    s.set('telegram',{'chat_id':42,'bot_id':7})
+    monkeypatch.setattr('joblane.worker.telegram.send',lambda *args,**kwargs:'ok')
+    s.update(j,status='needs_attention',reason='A question')
+    assert w.notify(j)['state']=='sent'
+    assert w.notify(j)['state']=='suppressed'
+    a.enqueue(j);s.update(j,reason='New question')
+    assert w.notify(j)['state']=='suppressed'
+
+
+def test_saved_question_answer_is_reused_in_another_job_context(env):
+    from test_joblane import add
+    a,s,c,h,j=enabled(env)
+    prior=a.enqueue(j);r=result(s.get('profile'));r['questions']=['Cisco Packet Tracer kullandın mı?']
+    a.update(prior,status='completed',result=json.dumps(r))
+    a.answer(j,'Evet, laboratuvar denemelerinde kullandım.',question_run=prior)
+    remembered=s.get('shared_answers')[-1]
+    assert remembered['question']==r['questions'][0] and remembered['answer'].startswith('Evet')
+    other=add(c,h,url='https://example.com/jobs/network').json['id'];run=a.enqueue(other)
+    inputs=json.loads(a.get_run(run)['inputs'])
+    assert remembered in inputs['shared_answers']
+    assert 'semantically' in a.prompt(a.get_run(run))

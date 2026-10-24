@@ -97,6 +97,7 @@ def send(store,test=False,job_id=None):
         text=f"Joblane · Başvuru #{job_id}\n{job['company']} · {job['title']}\n"
         with store.connect() as db:row=db.execute("SELECT id,result FROM ai_runs WHERE job_id=? AND status='completed' AND kind IN ('analyze','form') ORDER BY id DESC LIMIT 1",(job_id,)).fetchone()
         questions=json.loads(row[1]).get('questions',[]) if row and row[1] else []
+        if store.get(f'source_check:{job_id}',{}).get('employment')=='Unknown':questions=[]
         text+=('\n'.join(f'{i+1}. {q}' for i,q in enumerate(questions[:1])) if questions else job['reason'])
         text+='\n\nBu mesaja Yanıtla ile cevap ver veya /yanit '+str(job_id)+' cevabın yaz. Yanıt yalnızca bu başvuruya kaydedilir.'
         import os

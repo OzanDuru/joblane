@@ -1,7 +1,7 @@
 function liveOverview(){
  const w=state.worker, a=state.ai;
  if(w.active_job){const job=state.jobs.find(j=>j.id===w.active_job);return {title:job?`${job.company} · ${job.title}`:`Başvuru #${w.active_job} işleniyor`,badge:'BAŞVURU İŞLENİYOR',detail:'Tarayıcı işlemi sürüyor. Sonuç başvuru geçmişine kaydedilecek.'};}
- if(a.active||a.runs.some(r=>['queued','running'].includes(r.status))){const run=a.runs.find(r=>r.id===a.active)||a.runs.find(r=>['queued','running'].includes(r.status));return {title:run?.kind==='discover'?'Yeni ilanlar aranıyor':run?.kind==='email'?'Başvuru e-postası hazırlanıyor':'İlana özel CV analiz ediliyor',badge:run?.status==='queued'?'GÖREV SIRADA':'AI ÇALIŞIYOR',detail:`Görev #${run.id} · ${run.journal?.at(-1)?.title||'Görev hazırlanıyor'}`};}
+ if(a.active||a.runs.some(r=>['queued','running'].includes(r.status))){const run=a.runs.find(r=>r.id===a.active)||a.runs.find(r=>['queued','running'].includes(r.status));return {title:({discover:'Yeni ilanlar aranıyor',verify:'İlanın güncelliği ve koşulları kontrol ediliyor',email:'Başvuru e-postası hazırlanıyor',form:'Başvuru formunun yanıtları hazırlanıyor',observe:'Başvuru engeli inceleniyor',analyze:'İlana özel CV analiz ediliyor'}[run?.kind]||'AI görevi işleniyor'),badge:run?.status==='queued'?'GÖREV SIRADA':'AI ÇALIŞIYOR',detail:`Görev #${run.id} · ${run.journal?.at(-1)?.title||'Görev hazırlanıyor'}`};}
  if(state.security?.password_change_required)return {title:'Çalışma alanı şifreni değiştir',badge:'KURULUM BEKLİYOR',detail:'Başlatmadan önce ayarlardan kişisel şifreni belirle.'};
  if(!state.profile?.name||!state.profile?.email)return {title:'Ana profilini tamamla',badge:'PROFİL EKSİK',detail:'Başvurular için ad ve e-posta bilgilerini kaydet.'};
  if(w.paused)return {title:'Otomasyon duraklatıldı',badge:'DURAKLATILDI',detail:'Planlı işlemler devam ettirmeni bekliyor.'};
@@ -34,6 +34,7 @@ function liveFlowPanel(){
  const latest=events.at(-1);
  const canSearch=ai.config.enabled&&!state.worker.paused&&!state.security?.password_change_required&&!ai.runs.some(r=>r.kind==='discover'&&['queued','running'].includes(r.status));
  return `<section class="live-flow" id="live-flow"><div class="inline-heading"><h2>Canlı akış</h2><span class="pill">${active?'GÖREV #'+active.id+' · '+esc(aiStatusLabel(active.status)):'BEKLİYOR'}</span></div>
+ <div class="flow-counts"><span>Çalışan AI: ${ai.runs.filter(r=>r.status==='running').length}</span><span>Sıradaki görev: ${ai.runs.filter(r=>r.status==='queued').length+state.jobs.filter(j=>j.status==='queued').length}</span><span>Yanıt / inceleme bekleyen: ${state.jobs.filter(j=>['needs_attention','ready_review'].includes(j.status)).length}</span></div><p class="small muted">Bekleyen sorular yalnızca ilgili başvuruyu durdurur. Diğer işler kayıtlı plana göre devam eder.</p>
  <p>${esc(active?(latest?.title||'Görev sıraya alındı; ilk işlem bekleniyor.'):discoveryWaitText())}</p>
  ${active&&latest&&!latest.archived?`<p class="small muted">Son görev olayı: ${dates(latest.created)}. Yeni olay gelene kadar son doğrulanan adım gösterilir.</p>`:''}
  <div class="detail-actions"><button class="primary" data-ai-action="discover" ${canSearch?'':'disabled'}>Şimdi ilan ara ↗</button><button class="button" data-nav="ai">Tüm adımları ve kaynakları aç ↗</button></div>
@@ -50,12 +51,15 @@ function scheduleSummary(){
  return `<h3>${state.worker.paused?'Çalışma planı duraklatıldı':'Çalışma aralığı: '+esc(s.start)+'–'+esc(s.end)}</h3><p>${state.worker.paused?'Kayıtlı aralık: '+esc(s.start)+'–'+esc(s.end)+' · ':''}${esc(days||'Çalışma günü seçilmedi')} · ${esc(zone)} · ${esc(s.daily_limit)} planlı form denemesi/gün · ${discovery}.</p>${state.worker.paused?'<p>Devam ettirene kadar planlı işlemler çalışmaz.</p>':''}<button class="text-button" data-nav="settings">Çalışma planını düzenle ↗</button>`;
 }
 function homeView(){
- const live=liveOverview();
- return `${heading('İş arayışın','Tercihlerini seç. İlerlemeyi buradan izle; gerektiğinde soruları yanıtla.',false)}
+ const live=liveOverview(),running=state.settings.enabled&&!state.worker.paused;
+ return `${heading(running?'Otomasyonun çalışma alanı':'İş arayışın',running?'Çalışan görevleri ve yanıtlarının ardından ne olduğunu buradan izle.':'Tercihlerini seç ve iş arayışını başlat.',false)}
  ${!state.setup?.profile_confirmed?'<section class="form-panel"><h2>Önce profilini tamamla</h2><p>CV ve iletişim bilgilerini bir kez doğrula.</p><button class="primary" data-nav="profile">Profilimi aç ↗</button></section>':''}
- ${searchFilterForm()}
- <section class="form-panel"><div class="inline-heading"><h2 id="live-status-title">${esc(live.title)}</h2><span class="pill" id="live-status-badge">${esc(live.badge)}</span></div><p id="live-status-detail">${esc(live.detail)}</p><p class="small muted" id="state-freshness">Son veri alımı: ${new Date(stateReceivedAt).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul'})}</p>${liveFlowPanel()}</section>
+ ${running?'':searchFilterForm()}
+ <section class="form-panel operation-status"><div class="inline-heading"><div><p class="eyebrow">ŞU ANDAKİ İŞLEM</p><h2 id="live-status-title">${esc(live.title)}</h2></div><span class="pill" id="live-status-badge">${esc(live.badge)}</span></div><p id="live-status-detail">${esc(live.detail)}</p><p class="small muted" id="state-freshness">Son veri alımı: ${new Date(stateReceivedAt).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul'})}</p>${liveFlowPanel()}</section>
+ <section class="form-panel" id="answer-progress">${answerProgress()}</section>
  <section class="form-panel" id="attention-cards">${attentionCards()}</section>
+ <section class="form-panel" id="blocked-steps">${blockedPanel()}</section>
+ ${running?`<details class="form-panel search-preferences"><summary>Arama tercihleri · ${esc({turkey_first:'Türkiye öncelikli',turkey:'Türkiye',abroad:'Yurt dışı',worldwide:'Tüm dünya'}[state.ai.config.search_filters?.geography]||'Kayıtlı filtreler')}</summary><p class="small muted">Mevcut işlem çalışıyor olabilir. Buradan tercihleri değiştirmen gerekmez; güncelleme sonraki aramalara uygulanır.</p>${searchFilterForm()}</details>`:''}
  <details class="form-panel"><summary>Çalışma saatleri ve bağlantılar</summary>${scheduleSummary()}<p>Codex: ${esc(state.ai.runtime.auth)} · Outlook: ${state.outlook.configured?'bağlı':'bağlanmadı'} · Telegram yanıtları: ${state.connection.telegram_replies==='connected'?'dinleniyor':state.connection.telegram_replies==='unavailable'?'bağlantı kontrolü gerekiyor':'henüz bağlanmadı'}</p><div class="detail-actions"><button class="button" data-nav="settings">Bağlantıları düzenle ↗</button><button class="button" data-nav="profile">Profilim ve CV ↗</button></div></details>`;
 }
 document.addEventListener('click',async e=>{

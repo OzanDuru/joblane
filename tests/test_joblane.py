@@ -194,6 +194,7 @@ def test_review_then_submit_only_once(env,monkeypatch):
     w=app.extensions['worker'];fake=FakeBrowser();w.browser=fake
     monkeypatch.setattr('joblane.worker.public_host',lambda x:True)
     store.update(job_id,authorized=1)
+    store.set(f'source_check:{job_id}',{'posting_status':'open','checked_at':datetime.now(timezone.utc).isoformat()})
     w.run(job_id,'prepare')
     assert store.job(job_id)['status']=='ready_review' and fake.submits==0
     store.update(job_id,reviewed=1)
@@ -207,6 +208,7 @@ def test_uncertain_submission_cannot_be_requeued(env,monkeypatch):
     w=app.extensions['worker'];fake=FakeBrowser();fake.uncertain=True;w.browser=fake
     monkeypatch.setattr('joblane.worker.public_host',lambda x:True)
     store.update(job_id,authorized=1)
+    store.set(f'source_check:{job_id}',{'posting_status':'open','checked_at':datetime.now(timezone.utc).isoformat()})
     w.run(job_id,'prepare');store.update(job_id,reviewed=1)
     with pytest.raises(Handoff):w.run(job_id,'submit')
     w.attention(job_id,'Submission result is uncertain.')

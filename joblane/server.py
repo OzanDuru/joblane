@@ -40,6 +40,11 @@ def create_app(directory,port=8765,start_worker=True):
     def analyze_problem(job_id):
         if not agent.config()['enabled']:return False
         observation=store.get(f'observation:{job_id}',{})
+        if 'Employment type is not confirmed' in observation.get('reason','') or 'source_check_required:' in observation.get('reason',''):
+            from .job_health import source_stale
+            if not source_stale(store.get(f'source_check:{job_id}',{})):return False
+            try:agent.enqueue(job_id,kind='verify');return True
+            except ValueError:return False
         if not observation.get('fields'):return False
         from .form_plan import signature
         key=signature(observation['fields'])
@@ -158,7 +163,9 @@ def create_app(directory,port=8765,start_worker=True):
         for job in jobs:
             job['discovery']=store.get(f'discovery:{job["id"]}')
             job['answers']=store.get(f'answers:{job["id"]}',[])
+            job['answer_pending']=job['id'] in store.get('pending_answers',[])
             job['observation']=store.get(f'observation:{job["id"]}',{})
+            job['source_check']=store.get(f'source_check:{job["id"]}')
             for key in ('snapshot','cv_path','approval_digest','evidence'):
                 job['has_'+key]=bool(job.pop(key,None))
         domains={j['domain']:store.reviewed_count(j['domain']) for j in jobs if not j['demo']}
@@ -260,6 +267,12 @@ def create_app(directory,port=8765,start_worker=True):
     def discover_jobs():
         message=(request.get_json() or {}).get('message','')
         return jsonify(id=agent.enqueue(kind='discover',message=message)),202
+
+    @app.post('/api/jobs/<int:job_id>/verify-source')
+    def verify_job_source(job_id):
+        job=store.job(job_id)
+        if job['status'] in ('submitted','skipped','running','submitting','queued') or store.get('attempt:'+str(job_id)):raise ValueError('Bu başvuru aşamasında tekrar kontrol yapılamaz.')
+        return jsonify(id=agent.enqueue(job_id,kind='verify')),202
 
     @app.post('/api/jobs/<int:job_id>/answers')
     def answer_job(job_id):

@@ -91,7 +91,7 @@ class Store:
         return cur.lastrowid
 
     def update(self, job_id, **values):
-        allowed = {'status','reason','cv_path','snapshot','authorized','reviewed','submitted','evidence','attempt_started','approval_digest'}
+        allowed = {'description','status','reason','cv_path','snapshot','authorized','reviewed','submitted','evidence','attempt_started','approval_digest'}
         if not set(values).issubset(allowed):
             raise ValueError('Invalid update.')
         values['updated'] = now()

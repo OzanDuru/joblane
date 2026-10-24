@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const state={jobs:[{id:2,status:'needs_attention',company:'A',title:'Role',reason:'Review needed'},{id:3,status:'needs_attention',company:'B',title:'Role'}],ai:{runs:[{id:7,job_id:2,kind:'analyze',status:'completed',result:{questions:[],assessment:'Check the prepared CV.'}},{id:8,job_id:3,kind:'analyze',status:'completed',result:{questions:['Do you need sponsorship?','Optional second question']}}]}};
+const c={state,esc:String,dates:String,document:{addEventListener(){}}};vm.createContext(c);vm.runInContext(fs.readFileSync('joblane/static/workflow-ui.js','utf8'),c);
+assert(!c.answerBox(state.jobs[0]).includes('<textarea'));
+assert(c.answerBox(state.jobs[1]).includes('Do you need sponsorship?'));
+assert(!c.answerBox(state.jobs[1]).includes('Optional second question'));
+let cards=c.attentionCards();assert(cards.includes('Önceki')&&cards.includes('Sonraki')&&cards.includes('Bu ilanı atla')&&cards.includes('Sonraya bırak'));
+state.ai.runs.push({id:9,job_id:3,status:'running'});assert.equal(c.pendingAttention().length,0);
+state.jobs[0].source_check={employment:'Unknown',limitation:'Page unavailable'};assert(!c.answerBox(state.jobs[0]).includes('<textarea'));
+console.log('Attention UI: question-only input, navigation and independent waiting passed.');
