@@ -15,6 +15,8 @@ from .cv import generate
 from .worker import Worker
 from .codex_agent import CodexAgent, AI_DEFAULTS
 from .outlook import Outlook, mime_message
+from .workflow import validate_search
+from .telegram import ReplyListener
 
 def create_app(directory,port=8765,start_worker=True):
     app=Flask(__name__,static_folder='static')
@@ -33,11 +35,20 @@ def create_app(directory,port=8765,start_worker=True):
     worker=Worker(store,port)
     agent=CodexAgent(store,worker)
     outlook=Outlook(store,worker)
-    app.extensions.update(store=store,worker=worker,agent=agent)
+    replies=ReplyListener(store,agent.answer)
+    app.extensions.update(store=store,worker=worker,agent=agent,replies=replies)
     def analyze_problem(job_id):
-        if agent.config()['enabled']:
-            try:agent.enqueue(job_id,kind='observe',message='Explain this browser issue and propose the next step. Do not retry or submit anything.')
-            except ValueError:pass
+        if not agent.config()['enabled']:return False
+        observation=store.get(f'observation:{job_id}',{})
+        if not observation.get('fields'):return False
+        from .form_plan import signature
+        key=signature(observation['fields'])
+        if store.get(f'form_attempt:{job_id}')==key:return False
+        try:
+            agent.enqueue(job_id,kind='form',message='Resolve the actual form fields using known facts; ask only essential missing information.')
+            store.set(f'form_attempt:{job_id}',key)
+            return True
+        except ValueError:return False
     worker.on_attention=analyze_problem
     attempts={'count':0,'until':0}
     allowed_origins={f'http://127.0.0.1:{port}',f'http://localhost:{port}'}
@@ -85,6 +96,7 @@ def create_app(directory,port=8765,start_worker=True):
     @app.get('/home-ui.js')
     @app.get('/style.css')
     @app.get('/design.css')
+    @app.get('/workflow-ui.js')
     @app.get('/theme.js')
     def frontend_asset():
         return send_from_directory(app.static_folder,request.path.lstrip('/'))
@@ -145,6 +157,8 @@ def create_app(directory,port=8765,start_worker=True):
         settings=store.get('settings')
         for job in jobs:
             job['discovery']=store.get(f'discovery:{job["id"]}')
+            job['answers']=store.get(f'answers:{job["id"]}',[])
+            job['observation']=store.get(f'observation:{job["id"]}',{})
             for key in ('snapshot','cv_path','approval_digest','evidence'):
                 job['has_'+key]=bool(job.pop(key,None))
         domains={j['domain']:store.reviewed_count(j['domain']) for j in jobs if not j['demo']}
@@ -153,7 +167,7 @@ def create_app(directory,port=8765,start_worker=True):
         return jsonify(setup={'profile_confirmed':store.get('profile_confirmed',False)},security={'password_change_required':store.get('password_change_required',False)},jobs=jobs,events=store.events(),settings=settings,profile=store.get('profile',{}),
             worker={'paused':worker.paused.is_set(),'active_job':worker.current,'within_window':within_window(settings),
                     'browser_connected':bool(worker.browser.context),'running':bool(worker.thread and worker.thread.is_alive())},
-            site_sessions=worker.login_status(),connection={'private_url':public,'notifications':worker.notification_status()['configured'],'notification_provider':worker.notification_status()['provider'],'telegram_bot':worker.notification_status()['bot_username']},
+            site_sessions=worker.login_status(),connection={'private_url':public,'notifications':worker.notification_status()['configured'],'notification_provider':worker.notification_status()['provider'],'telegram_bot':worker.notification_status()['bot_username'],'telegram_replies':store.get('telegram_reply_status','not_started')},
             reviewed_by_domain=domains,notifications=notifications,
             ai={'config':agent.config(),'runtime':agent.runtime_status,'active':agent.active,'runs':agent.runs(),'schedule':agent.discovery_schedule()},
             history=worker.history.data(),outlook=outlook.status())
@@ -169,21 +183,29 @@ def create_app(directory,port=8765,start_worker=True):
 
     @app.post('/api/automation/start')
     def start_automation():
-        if (request.get_json() or {}).get('confirmed') is not True:
+        data=request.get_json() or {}
+        if data.get('confirmed') is not True:
             raise ValueError('Confirm your profile and Codex use before starting.')
+        filters=validate_search(data.get('search_filters',agent.config()['search_filters']))
+        if type(data.get('auto_fill',agent.config()['auto_fill'])) is not bool:raise ValueError('Form tercihi geçersiz.')
         profile=validate_profile(store.get('profile',{}))
         if not profile.get('skills','').strip() and not profile.get('projects') and not profile.get('experience'):
             raise ValueError('Complete your CV facts before starting discovery.')
         status=agent.check()
         if status['auth'] not in ('ChatGPT','API key'):
             raise ValueError('Codex needs sign-in. Open AI & discovery and check the connection.')
-        with store.lock:
+        with agent.lock,store.lock:
             store.set('profile_confirmed',True)
-            store.set('ai_config',{**agent.config(),'enabled':True,'auto_prepare':True,'discovery_enabled':True})
+            store.set('ai_config',{**agent.config(),'enabled':True,'auto_prepare':True,'discovery_enabled':True,'search_filters':filters,'auto_fill':data.get('auto_fill',agent.config()['auto_fill'])})
             store.set('settings',{**store.get('settings'),'enabled':True})
             store.set('paused',False)
             worker.paused.clear()
-            store.event(None,'Automation enabled. Discovery and preparation follow your execution window; submission rules are unchanged.')
+            store.event(None,'Otomasyon arama tercihleriyle açıldı; gönderim inceleme kuralları korundu.')
+            if data.get('immediate') is True:
+                with store.connect() as db:busy=db.execute("SELECT id FROM ai_runs WHERE kind='discover' AND status IN ('queued','running')").fetchone()
+                if not busy:
+                    agent.enqueue(kind='discover')
+                    store.set('last_discovery',time.time())
         return jsonify(ok=True)
 
     @app.post('/api/notifications/test')
@@ -205,7 +227,7 @@ def create_app(directory,port=8765,start_worker=True):
     @app.post('/api/jobs/<int:job_id>/email/ai')
     def email_ai(job_id):
         data=request.get_json() or {}
-        return jsonify(id=agent.enqueue(job_id,kind='email',message=data.get('message','Write a concise English application for this advertised role.'))),202
+        return jsonify(id=agent.enqueue(job_id,kind='email',message=data.get('message','Write a concise application. Choose Turkish for a Turkish-language posting and English for an English-language posting; if unclear ask. Use the role-specific CV.'))),202
 
     @app.get('/api/history/emails/<int:delivery_id>')
     def email_file(delivery_id):
@@ -225,18 +247,25 @@ def create_app(directory,port=8765,start_worker=True):
     def save_ai_config():
         data=request.get_json() or {}
         config={**agent.config(),**{k:v for k,v in data.items() if k in AI_DEFAULTS}}
-        for key in ('enabled','auto_prepare','discovery_enabled'):
+        for key in ('enabled','auto_prepare','auto_fill','discovery_enabled'):
             if type(config[key]) is not bool:raise ValueError('Invalid AI preference.')
         if not isinstance(config['discovery_query'],str) or not 10<=len(config['discovery_query'])<=4000:raise ValueError('Describe the job search in 10–4,000 characters.')
         if type(config['discovery_interval']) is not int or not 30<=config['discovery_interval']<=1440:raise ValueError('Discovery interval must be 30–1,440 minutes.')
+        config['search_filters']=validate_search(config['search_filters'])
         store.set('ai_config',config)
         store.event(None,'Codex connection and discovery preferences updated.')
-        return jsonify(ok=True)
+        return jsonify(ok=True,config=config)
 
     @app.post('/api/ai/discover')
     def discover_jobs():
         message=(request.get_json() or {}).get('message','')
         return jsonify(id=agent.enqueue(kind='discover',message=message)),202
+
+    @app.post('/api/jobs/<int:job_id>/answers')
+    def answer_job(job_id):
+        data=request.get_json() or {}
+        if type(data.get('remember',False)) is not bool:raise ValueError('Ortak yanıt tercihi geçersiz.')
+        return jsonify(agent.answer(job_id,data.get('text',''),remember=data.get('remember',False),question_run=data.get('question_run')))
 
     @app.post('/api/jobs/<int:job_id>/ai')
     def analyze_job(job_id):
@@ -408,4 +437,5 @@ def create_app(directory,port=8765,start_worker=True):
     if start_worker:
         worker.start()
         agent.start()
+        replies.start()
     return app

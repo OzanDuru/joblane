@@ -179,6 +179,7 @@ def test_known_fields_only(profile):
 class FakeBrowser:
     def __init__(self):self.pages={};self.submits=0;self.uncertain=False;self.fills=0
     def page(self,job):self.pages[job['id']]='page';return 'page'
+    def open_application_form(self,page):pass
     def fill(self,*args,**kwargs):self.fills+=1;return 'fingerprint'
     def confirmation(self,page):return None
     def submit(self,page,signature,mark_submitting):

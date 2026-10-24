@@ -83,3 +83,12 @@ Outlook OAuth consent, real email sending, Tailscale phone access and Pushover d
 - Searched `junior`, opened the same Pologron Junior QA & Data Specialist listing (4576135) that previously presented human verification, and opened `/basvuru-tamamlama/4576135`. The authenticated form loaded without a challenge during this trial. This is an observation, not proof of the vendor's detection mechanism or reliability across future runs.
 - Form reached final review: existing Kariyer CV “Ozan Duru Özgeçmiş” (last updated 21.10.2026), no cover letter selected for the test, site-prefilled monthly net expectation 50,000 TRY, company-follow option unchecked. No final submission click was made. No CV was edited for this test.
 - Evidence: ../joblane-kariyer-native-review.png. Native desktop control here is supplied by the current assistant's computer-use tools; it has NOT been implemented as an unattended Joblane worker driver. Do not label the worker connected/verified based on this separate Chrome session.
+
+## Conversation-driven workflow update — 25 October
+
+- Search scope is persisted (Turkey-first / Turkey / abroad / worldwide, sources, work mode, roles). Immediate start deduplicates active discovery and records the interval anchor.
+- Main screen shows a single pending question. Scoped answers enter the next AI task; previous country-specific facts remain contextual. Submitted/uncertain applications reject answer-driven retries.
+- Telegram listener accepts only the paired private sender, binds replies to application/question IDs, deduplicates update IDs, ignores old messages on initial startup and never treats a reply as submission authorization.
+- Auto-fill preference is immediately persisted and acknowledged. Verified in the live UI after reload and in the local database. The initially missing frontend asset route was fixed using the existing static handler; startup errors no longer show alongside the workspace.
+- AI field plans allow only supported text/select fields with existing fact references and existing options. Field schema changes, sensitive fields and legal consent require intervention. A mocked form submission test checks that uncertain submissions cannot be retried.
+- This update does not establish live unattended LinkedIn/Kariyer support or guarantee ATS acceptance. No employer application was submitted while testing these changes.

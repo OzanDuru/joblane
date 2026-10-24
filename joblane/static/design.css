@@ -55,3 +55,4 @@ html[data-theme="dark"] .metric,html[data-theme="dark"] .panel,html[data-theme="
 .live-events li{padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
 .live-events pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0 0;max-height:180px;overflow:auto;font:inherit;font-size:13px}
 @media(max-width:780px){.live-flow{padding:16px}.live-events li{padding:12px}.live-events{max-height:420px}}
+.source-options{display:flex;flex-wrap:wrap;gap:12px 28px;margin:18px 0}.advanced-menu{padding:12px 0}.advanced-menu summary{padding:10px;font-size:13px;color:var(--muted)}.attention-card{padding:24px 0;border-top:1px solid var(--line)}.answer-box{display:grid;gap:16px}.answer-box ol{padding-left:22px;margin:0}.answer-box li+li{margin-top:10px}.answer-box p{margin:0}.answer-box .primary{justify-self:start}.live-flow{margin-bottom:0}

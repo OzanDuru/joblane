@@ -71,6 +71,7 @@ def main():
     try:
         serve(app,host='127.0.0.1',port=args.port,threads=6)
     finally:
+        app.extensions['replies'].stop_event.set()
         agent=app.extensions['agent']
         agent.stop_event.set()
         if agent.active:

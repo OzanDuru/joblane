@@ -7,7 +7,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urljoin
+from .form_plan import signature as plan_signature
 
 CHALLENGES = ('verify you are human','checking your browser','unusual traffic','access denied','verify that you are human','security verification','captcha forbidden')
 CONFIRMATIONS = ('your application has been submitted','application successfully submitted','thank you for applying','başvurunuz alınmıştır','başvurunuz başarıyla')
@@ -269,6 +270,21 @@ class FormBrowser:
         page.goto(job['url'],wait_until='domcontentloaded',timeout=45000)
         return page
 
+    def open_application_form(self,page):
+        """Follow one unambiguous same-site apply link, never click a submit button."""
+        for _ in range(3):
+            _,fields=self.inspect(page)
+            if fields:return
+            links=page.get_by_role('link',name=re.compile(r'^(apply|apply now|apply for this job|apply for this position|başvur|hemen başvur|başvuru yap)$',re.I))
+            visible=[links.nth(i) for i in range(links.count()) if links.nth(i).is_visible()]
+            if len(visible)!=1:return
+            target=urljoin(page.url,visible[0].get_attribute('href') or '')
+            before=urlsplit(page.url);dest=urlsplit(target)
+            if target==page.url or dest.scheme!='https' or dest.hostname!=before.hostname:return
+            self.guard()
+            visible[0].click(timeout=15000)
+            page.wait_for_load_state('domcontentloaded')
+
     def inspect(self,page):
         text = page.locator('body').inner_text(timeout=10000).lower()
         if any(s in text for s in CHALLENGES) or page.locator('iframe[src*="challenges.cloudflare"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"]').count():
@@ -285,16 +301,18 @@ class FormBrowser:
               kind: el.type || el.tagName.toLowerCase(), autocomplete: el.autocomplete || '',
               required: el.required || el.getAttribute('aria-required') === 'true',
               value: el.type === 'file' ? Array.from(el.files || []).map(f=>f.name).join(',') : el.value,
-              checked: !!el.checked, index: 0
+              checked: !!el.checked, index: 0, options: el.tagName === 'SELECT' ? Array.from(el.options).map(o=>({value:o.value,label:o.text,disabled:o.disabled})).filter(o=>!o.disabled) : null
             })''')
             if info['kind'] in ('submit','button','reset','hidden'): continue
             info['index']=i
             fields.append(info)
         return controls, fields
 
-    def fill(self,page,profile,cv_path,acknowledge_unknown=False):
+    def fill(self,page,profile,cv_path,acknowledge_unknown=False,plan=None):
         controls,fields=self.inspect(page)
         if not fields: raise Handoff('No supported single-page form found. Open the application form in this tab, then resume.')
+        if plan and plan.get('signature')!=plan_signature(fields):raise Handoff('Form alanları değişti. Yeni alanlar için tekrar değerlendirme gerekiyor.')
+        planned={a['index']:a['value'] for a in (plan or {}).get('answers',[])}
         issues=[]
         for f in fields:
             self.guard()
@@ -317,8 +335,10 @@ class FormBrowser:
                     issues.append('Choice needs your input: '+f['label'])
             else:
                 value=field_value(f['label'],f['kind'],f['autocomplete'],profile)
+                if value is None:value=planned.get(f['index'])
                 if value is not None:
-                    el.fill(value)
+                    if f['kind']=='select-one':el.select_option(value)
+                    else:el.fill(value)
                 elif f['required'] and not f['value']:
                     issues.append('Required answer: '+f['label'])
                 elif not acknowledge_unknown:

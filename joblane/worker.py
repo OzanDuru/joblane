@@ -13,6 +13,7 @@ from .policy import within_window, board_requires_handoff, digest, matches_prefe
 from .store import now
 from .history import History
 from . import telegram
+from .form_plan import descriptors
 
 
 class Worker:
@@ -99,7 +100,7 @@ class Worker:
     def notify(self,job_id,test=False):
         if telegram.status(self.store)['configured']:
             state='sent'
-            try:detail=telegram.send(self.store,test=test)
+            try:detail=telegram.send(self.store,test=test,job_id=job_id)
             except Exception:
                 state,detail='failed','Telegram bildirimi doğrulanamadı. Bot bağlantısını, engelleme durumunu ve interneti kontrol et. Otomatik tekrar veya başka kanala gönderim yapılmadı.'
             with self.store.connect() as db:
@@ -132,16 +133,16 @@ class Worker:
         if record and self.history.delivery(record)['status']=='sending':self.history.update(record,'uncertain',reason)
         self.store.update(job_id,status='needs_attention',reason=reason)
         self.store.event(job_id,reason)
-        self.notify(job_id)
         observation={'reason':reason,'fields':[]}
         page=self.browser.pages.get(job_id)
         if page:
             try:
                 _,fields=self.browser.inspect(page)
-                observation['fields']=[{'label':f['label'],'kind':f['kind'],'required':f['required']} for f in fields]
+                observation['fields']=descriptors(fields)
             except Exception:pass
         self.store.set(f'observation:{job_id}',observation)
-        if self.on_attention:self.on_attention(job_id)
+        handling=self.on_attention(job_id) if self.on_attention else False
+        if not handling:self.notify(job_id)
 
     def scheduled_job(self):
         settings=self.store.get('settings')
@@ -241,7 +242,9 @@ class Worker:
             page=self.browser.page(job)
             if self.browser.confirmation(page):
                 raise Handoff('A confirmation-like page is already visible. Check the existing submission before doing anything else.')
-            self.signatures[job_id]=self.browser.fill(page,profile,job['cv_path'],acknowledge_unknown=action=='resume')
+            self.browser.open_application_form(page)
+            plan=self.store.get(f'form_plan:{job_id}')
+            self.signatures[job_id]=self.browser.fill(page,profile,job['cv_path'],acknowledge_unknown=action=='resume' or bool(plan),plan=plan)
             self.store.update(job_id,status='ready_review',reason='Form filled. Inspect the CV and browser screenshot before submitting.')
             self.store.event(job_id,'Form filled; ready for review.' if not automatic else 'Known form filled under domain authorization.')
             if not automatic: return

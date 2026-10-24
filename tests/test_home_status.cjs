@@ -6,7 +6,7 @@ assert.equal(c.liveOverview().badge,'PLAN KAPALI');assert(!c.scheduleSummary().i
 state.settings={...state.settings,enabled:true,start:'09:30',end:'17:45',days:[0,2],daily_limit:4};state.ai.config.discovery_interval=60;
 assert.equal(c.liveOverview().title,'Çalışma saati bekleniyor');
 for(const value of ['09:30–17:45','Pzt, Çar','4 planlı','60 dakikada'])assert(c.scheduleSummary().includes(value));
-state.worker.within_window=true;assert.equal(c.liveOverview().title,'Plan açık · şu anda işlem yok');
+state.worker.within_window=true;assert.equal(c.liveOverview().title,'Sıradaki ilan araması bekleniyor');
 state.jobs=[{id:7,status:'queued',company:'Example',title:'Engineer'}];assert.equal(c.liveOverview().title,'1 başvuru sırada');
 state.worker.active_job=7;assert.equal(c.liveOverview().badge,'BAŞVURU İŞLENİYOR');state.worker.active_job=null;
 state.ai.active=2;state.ai.runs=[{id:2,kind:'discover'}];assert.equal(c.liveOverview().title,'Yeni ilanlar aranıyor');state.ai.active=null;

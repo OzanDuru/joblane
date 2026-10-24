@@ -189,3 +189,17 @@ Kariyer.net için genel HttpOnly veya bot doğrulama çerezleri hesap oturumu ka
 5. Hesap doğrulanırsa giriş tarayıcısı kapanır. Güvenlik hizmeti tekrar engellerse durum panelde gösterilir; bu yöntem sonraki otomatik işlemlerin kabul edileceğini garanti etmez.
 
 Eski `browser-profile-kariyer-chrome` profili silinmez. Yeni akış farklı, kalıcı bir profil kullanır. Joblane yeniden başlatılırken elle açılmış Chrome kapatılmaz; doğrulamadan önce özel Chrome’dan çıkış yapmalısın (Kariyer.net hesabından çıkış yapma).
+
+## Sade otomasyon akışı (25 Ekim güncellemesi)
+
+Ana ekranda konumu, çalışma şeklini ve kaynakları seç. “Bu filtrelerle şimdi başlat” ilk keşfi hemen sıraya alır; sonraki planlı çalışmalar kayıtlı saat ve aralıklara uyar. Türkiye önceliğinde arama hedefi altı sonuç için dört Türkiye ilanı ve en fazla iki yurt dışı ilanıdır; doğrulanabilir sonuç yoksa eksiklik açıklanır. Kaynak ve konum değerlendirmeleri gerçek ilan üzerinden kontrol edilmelidir.
+
+“Otomatik doldur” kutusu işaretlendiği anda sunucuya kaydedilir. “Kaydedildi” yazısı sunucunun kabulünden sonra görünür. Diğer filtreler “Yalnızca tercihleri kaydet” veya başlat düğmesiyle kaydedilir. Ana ekrandaki periyodik yenileme yazdığın yanıtı veya kaydedilmemiş filtreyi silmez.
+
+“Senden gerekenler” aynı anda bir başvurunun ilk sorusunu gösterir. Yanıtın soru bağlamıyla saklanır; sonraki analizlerde aynı ülke ve konu için yeniden kullanılabilir. ABD çalışma izni yanıtı başka ülkelerde çalışma izni olarak yorumlanmamalıdır. Yanıtladığında AI yeniden değerlendirir; duraklatılmışsa yanıt saklanır ve otomasyon devam ettiğinde işlenir.
+
+Telegram’da yeni başvuru bildirimindeki soruya “Yanıtla” ile cevap ver veya `/yanit BAŞVURU_NO cevabın` yaz. Yalnızca eşleştirilmiş kişisel hesaptan gelen mesajlar kabul edilir. Eski bir soruya verilen yanıt, soru değişmişse reddedilir. Yanıtlar yalnızca uygulama çalışırken alınır. İlk dinleyici açılışında geçmiş mesajlar işlenmez. CV dosyaları, çerezler ve parolalar Telegram’a gönderilmez.
+
+AI uygun bulduğunda ve eksik bilgi kalmadığında ilana özel PDF hazırlanır. Otomatik doldurma açıksa desteklenen şirket formu sıraya alınır. Formdaki metin ve açılır liste alanları mevcut bilgilerle eşleştirilir; alan yapısı değişirse eski eşleştirme kullanılmaz. İlk gönderimler inceleme bekler. Hukuki onay, CAPTCHA ve giriş işlemleri gerektiğinde mevcut Mac tarayıcı oturumunda tamamlanır; telefonda ayrı bir tarayıcıda giriş yapmak Mac oturumunu doğrulamaz. Telefonla aynı oturuma erişmek için uzaktan masaüstü gerekir.
+
+LinkedIn/Kariyer.net keşif kaynağı olabilir; otomatik gönderim adaptörleri henüz hazır değildir. Diğer sitelerde de çok adımlı, iframe veya özel kontroller her durumda desteklenmez. Bu durumlarda otomasyon başarı iddia etmez. E-posta dilinde “İlan diline göre otomatik” seçilebilir; taslak kaydedilirken o başvuruya ait PDF’nin sabit kopyası eklenir. Outlook gönderimi onay bekler.
