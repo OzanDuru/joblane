@@ -1,0 +1,21 @@
+// Run with node tests/test_home_status.cjs; no browser or live database needed.
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
+const state={settings:{enabled:false,start:'15:00',end:'20:00',days:[0,1,2,3,4,5,6],timezone:'Europe/Istanbul',daily_limit:10},worker:{paused:false,running:true,within_window:false},ai:{config:{enabled:true,discovery_enabled:true,discovery_interval:120},runtime:{auth:'ChatGPT'},runs:[]},profile:{name:'Test',email:'test@example.com'},jobs:[],setup:{profile_confirmed:true}};
+const c={state,esc:String,document:{addEventListener(){}}};vm.createContext(c);vm.runInContext(fs.readFileSync(path.join(__dirname,'../joblane/static/home-ui.js'),'utf8'),c);
+assert.equal(c.liveOverview().badge,'PLAN KAPALI');assert(!c.scheduleSummary().includes('15:00'));
+state.settings={...state.settings,enabled:true,start:'09:30',end:'17:45',days:[0,2],daily_limit:4};state.ai.config.discovery_interval=60;
+assert.equal(c.liveOverview().title,'Çalışma saati bekleniyor');
+for(const value of ['09:30–17:45','Pzt, Çar','4 planlı','60 dakikada'])assert(c.scheduleSummary().includes(value));
+state.worker.within_window=true;assert.equal(c.liveOverview().title,'Plan açık · şu anda işlem yok');
+state.jobs=[{id:7,status:'queued',company:'Example',title:'Engineer'}];assert.equal(c.liveOverview().title,'1 başvuru sırada');
+state.worker.active_job=7;assert.equal(c.liveOverview().badge,'BAŞVURU İŞLENİYOR');state.worker.active_job=null;
+state.ai.active=2;state.ai.runs=[{id:2,kind:'discover'}];assert.equal(c.liveOverview().title,'Yeni ilanlar aranıyor');state.ai.active=null;
+state.worker.paused=true;assert.equal(c.liveOverview().badge,'DURAKLATILDI');assert(c.scheduleSummary().includes('Çalışma planı duraklatıldı'));state.worker.paused=false;
+state.worker.running=false;assert.equal(c.liveOverview().badge,'KONTROL GEREKİYOR');state.worker.running=true;
+state.ai.runtime.auth='unchecked';assert.equal(c.liveOverview().badge,'BAĞLANTI BEKLİYOR');state.ai.runtime.auth='ChatGPT';
+state.ai.config.discovery_enabled=false;assert(c.scheduleSummary().includes('Planlı ilan arama kapalı'));assert(!c.scheduleSummary().includes('60 dakikada'));
+state.profile={};assert.equal(c.liveOverview().badge,'PROFİL EKSİK');
+console.log('Home status: all state-transition checks passed.');
+state.site_sessions={kariyer:{status:'unverified',session_present:true}};
+assert(!c.siteSessionsPanel().includes('Oturum verisi:'));
+assert(c.siteSessionsPanel().includes('Doğrulanamadı'));
